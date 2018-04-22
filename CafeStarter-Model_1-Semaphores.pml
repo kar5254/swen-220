@@ -2,7 +2,7 @@
  * Starter skeleton for Cafe using semaphores
  */
 
-#define NCUSTS 2 	/* number of customers */
+#define NCUSTS 3 	/* number of customers */
 #define NCASHIERS 1 /* number of cashiers */
 #define NSERVERS 1 	/* number of servers */
 #define NOBODY 255
@@ -21,17 +21,18 @@ inline lock(s) {atomic{ s>0 ; s--}}
 inline notify(s) {s++;}
 inline wait(s) {atomic{ s>0 ; s--}}
 
-mtype = {CHILI, SANDWICH, PIZZA} ;	/* the types of foods */
+mtype = {CHILI, SANDWICH, PIZZA, NULL} ; // the types of foods (added null for resets)
 mtype favorites[NCUSTS];
+mtype orders[NCUSTS] = NULL;
 
-byte numWaiting = 0;
-byte numServed = 0;
 byte ordering = NOBODY;
 
-semaphore foodReady = 0;
-semaphore cashier = 1;
+semaphore waitingFood[NCUSTS] = 1;
+semaphore cashierOpen = 1;
+semaphore serverOpen = 1;
 
-bool want
+bool waiting[NCUSTS] = false;
+
 
 /*
  * Process representing a customer.
@@ -43,38 +44,35 @@ proctype Customer(mtype favorite; byte id)
 	/* customer cycle */
 	do
 	::
+		//Enter
+		printf("Customer %d Entered\n", id);
 
-		/* 1. Customer enters the cafe */
-		printf("C%d enters.\n", id) ;
-
-		/* 2. Record a new customer */
+		//Record
 		favorites[id] = favorite;
-		numWaiting++;
-	
-		/* 3. Wait for the cashier */
 
-		cashier > 0;
-		ordering = id;
-		lock(cashier);
-		numWaiting--;
-		numServed++;
+		//Wait for cashier
+		cashierOpen > 0;
+		atomic{
+			lock(cashierOpen);
+			printf("Cashier selects customer %d\n", id);
+			ordering = id;
+		}
+		//Order
+		orders[id] = favorite;
+		printf("Customer orders %e\n", favorite);
+		unlock(cashierOpen);
+		ordering = NOBODY;
+		
 
-		/* 4. Customer places order for favorite food */
-		printf("C%d orders %e.\n", id, favorite) ;
+		printf("Customer %d is waiting for %e\n", id, favorite);
+		waiting[id] = true;
+		wait(waitingFood[id]);
+		waitingFood[id] > 0;
 		
-		/* 5. Wait for the order to be fulfilled */
+		printf("Customer %d recieves food and leaves\n", id);
+		favorites[id] = NULL;
+		orders[id] = NULL;
 		
-		wait(foodReady);
-		
-		unlock(cashier);
-
-		foodReady < 1;
-		notify(foodReady);
-		
-		/* 6. Customer exits with food */
-		printf("C%d leaves.\n", id);
-		numServed--;
-
 	od ;
 }
 
@@ -85,20 +83,11 @@ proctype Cashier()
 {
 	do
 	::
-		/* 1. Cashier waits for a new customer */
-		printf("Cashier is waiting for a new customer.\n");
-		
-		
-		
-		/* 2. Cashier selects a waiting customer */
-		printf("Cashier selects customer.\n");
-		
-		/* 3. Cashier takes selected customer's order */
-		printf("Cashier takes order.\n");
-
-		/* 4. Cashier passes order to server */
-		printf("Cashier passes order to server.\n");
-
+		printf("Cashier is waiting for a customer\n");
+		cashierOpen < 1;
+		printf("Cashier takes the order of Customer %d\n", ordering);
+		serverOpen > 0;
+		printf("Cashier passes order to server\n");
 	od ;
 }
 
@@ -107,22 +96,22 @@ proctype Cashier()
  */
 proctype Server()
 {
-
+	byte id;
 	do
 	::
-		printf("Server is free.\n") ;
-		/* Server is waiting for an order */
-
-		/* Server retrives an order and takes it down */
-		printf("Server is retrieves an order for customer...\n") ;
-
-		/* Server makes the order */
-		printf("Server makes order.\n");
-
-
-		/* server gives the order to the customer */
-		printf("Server delivers order to customer.\n");
-		
+		printf("Server is waiting for order\n");
+		for(id : 0..2){
+			if
+			::  waiting[id] ->
+				lock(serverOpen);
+				printf("Server creates order of %e for %d\n", orders[id], id);
+				printf("Server delivers order of %e to %d\n", orders[id], id);
+				notify(waitingFood[id]);
+				unlock(serverOpen);
+			::  else ->
+					skip;
+			fi;
+		}
 	od ;
 
 }
